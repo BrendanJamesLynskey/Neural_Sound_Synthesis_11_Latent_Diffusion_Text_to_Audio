@@ -1,0 +1,821 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Neural Sound Synthesis · Part 11 — Latent Diffusion: Text-to-Audio</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+  onload="renderMathInElement(document.body, {delimiters:[{left:'$$',right:'$$',display:true},{left:'$',right:'$',display:false}],throwOnError:false});"></script>
+<style>
+:root {
+  --bg: #0a0b0f;
+  --bg2: #12141c;
+  --bg3: #1a1d2a;
+  --fg: #d4d6e0;
+  --fg-dim: #8a8d9a;
+  --accent: #c07af0;
+  --accent2: #8b7bf0;
+  --accent3: #5ce89a;
+  --accent4: #e85a7a;
+  --accent5: #e8a44a;
+  --border: #2a2d3a;
+  --glow: rgba(74,199,232,0.15);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;font-size:16px}
+body{background:var(--bg);color:var(--fg);font-family:'Palatino Linotype','Book Antiqua',Palatino,'Georgia',serif;line-height:1.75;overflow-x:hidden}
+::selection{background:var(--accent);color:var(--bg)}
+a{color:var(--accent);text-decoration:none;border-bottom:1px solid transparent;transition:border-color .2s}
+a:hover{border-bottom-color:var(--accent)}
+
+header{min-height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:2rem;position:relative;overflow:hidden}
+header canvas{position:absolute;top:0;left:0;width:100%;height:100%;z-index:0;opacity:.5}
+header .content{position:relative;z-index:1;max-width:880px}
+header .eyebrow{font-family:'Lucida Console',Monaco,monospace;font-size:.8rem;letter-spacing:.3em;text-transform:uppercase;color:var(--accent2);margin-bottom:1.4em}
+header h1{font-size:clamp(2rem,5vw,3.4rem);font-weight:300;letter-spacing:.04em;color:var(--accent);text-shadow:0 0 60px rgba(74,199,232,.3);margin-bottom:.3em}
+header h1 em{font-style:italic;color:var(--fg);font-weight:400}
+header .subtitle{font-size:1.12rem;color:var(--fg-dim);max-width:680px;margin:0 auto 2em}
+header .people{display:flex;gap:.6rem;justify-content:center;flex-wrap:wrap;margin-bottom:2em}
+header .people span{font-size:.85rem;color:var(--fg);padding:.35em .9em;border:1px solid var(--border);border-radius:2px;background:rgba(26,29,42,.7)}
+header .cta{display:flex;gap:.8rem;justify-content:center;flex-wrap:wrap}
+
+nav#toc{position:sticky;top:0;z-index:100;background:rgba(10,11,15,.92);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:.6rem 1rem;overflow-x:auto;white-space:nowrap;text-align:center}
+nav#toc a{display:inline-block;font-size:.78rem;color:var(--fg-dim);padding:.3em .7em;margin:0 .1em;letter-spacing:.04em;text-transform:uppercase;font-family:'Lucida Console',Monaco,monospace;transition:color .2s;border-bottom:none}
+nav#toc a:hover,nav#toc a.active{color:var(--accent)}
+
+section{max-width:920px;margin:0 auto;padding:4rem 1.5rem;border-bottom:1px solid var(--border)}
+section:last-of-type{border-bottom:none}
+h2{font-size:clamp(1.5rem,3vw,2.2rem);font-weight:300;color:var(--accent);margin-bottom:.3em;letter-spacing:.03em}
+h2 .num{font-family:'Lucida Console',Monaco,monospace;font-size:.7em;color:var(--fg-dim);margin-right:.5em}
+h3{font-size:1.2rem;color:var(--accent2);margin:2em 0 .5em;font-weight:400}
+h4{font-size:1rem;color:var(--accent3);margin:1.5em 0 .3em;font-weight:400}
+p{margin-bottom:1.2em}
+ul,ol{padding-left:1.4em;margin-bottom:1.2em}
+li{margin-bottom:.5em}
+.lead{font-size:1.08rem;color:var(--fg);margin-bottom:1.5em}
+
+.viz{margin:2em 0;background:var(--bg2);border:1px solid var(--border);border-radius:4px;overflow:hidden}
+.viz canvas{display:block;width:100%;cursor:crosshair}
+.viz-caption{font-size:.8rem;color:var(--fg-dim);padding:.6em 1em;border-top:1px solid var(--border);font-family:'Lucida Console',Monaco,monospace}
+
+.controls{display:flex;flex-wrap:wrap;gap:.8rem;padding:.8em 1em;background:var(--bg3);border-top:1px solid var(--border);align-items:center}
+.controls label{font-size:.78rem;color:var(--fg-dim);font-family:'Lucida Console',Monaco,monospace;display:flex;align-items:center;gap:.4em}
+.controls input[type="range"]{width:120px;accent-color:var(--accent)}
+.controls select{background:var(--bg);color:var(--fg);border:1px solid var(--border);padding:.3em .5em;font-size:.78rem;border-radius:2px;font-family:inherit}
+.controls button,.btn{background:var(--accent);color:var(--bg);border:none;padding:.45em 1em;font-size:.78rem;font-family:'Lucida Console',Monaco,monospace;cursor:pointer;border-radius:2px;letter-spacing:.03em;transition:background .2s}
+.controls button:hover,.btn:hover{background:#6fd4ef}
+.btn-outline{background:transparent;border:1px solid var(--accent);color:var(--accent)}
+.btn-outline:hover{background:var(--accent);color:var(--bg)}
+.controls .val{color:var(--accent);font-family:'Lucida Console',monospace;font-size:.78rem;min-width:2.5em;display:inline-block}
+.tabrow{display:flex;gap:.3em;flex-wrap:wrap}
+.tabrow button{background:var(--bg);border:1px solid var(--border);color:var(--fg-dim)}
+.tabrow button.on{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+
+.math{display:block;text-align:center;padding:1.4em 1.2em;margin:1.5em 0;background:var(--bg2);border-left:3px solid var(--accent);font-size:1.1rem;color:var(--fg);overflow-x:auto;border-radius:0 4px 4px 0}
+.math .katex{font-size:1.2em}
+.math-inline .katex{font-size:1.0em}
+
+.timeline{position:relative;padding:1em 0 1em 2em;margin:2em 0}
+.timeline::before{content:'';position:absolute;left:.6em;top:0;bottom:0;width:2px;background:var(--border)}
+.timeline-item{position:relative;margin-bottom:1.8em;padding-left:1.5em}
+.timeline-item::before{content:'';position:absolute;left:-1.95em;top:.4em;width:10px;height:10px;border-radius:50%;background:var(--accent);border:2px solid var(--bg)}
+.timeline-year{font-family:'Lucida Console',Monaco,monospace;color:var(--accent);font-size:.85rem;margin-bottom:.2em}
+.timeline-text{font-size:.95rem;color:var(--fg-dim)}
+.timeline-text strong{color:var(--fg)}
+
+blockquote{border-left:3px solid var(--accent5);padding:.8em 1.2em;margin:1.5em 0;color:var(--fg-dim);font-style:italic;background:rgba(232,164,74,.05)}
+blockquote cite{display:block;font-size:.85rem;color:var(--accent5);margin-top:.5em;font-style:normal}
+
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:1.5em;margin:1.5em 0}
+@media(max-width:700px){.grid-2{grid-template-columns:1fr}}
+
+.references{margin-top:2em;padding:1.5em;background:var(--bg2);border:1px solid var(--border);border-radius:4px}
+.references h3{margin-top:0}
+.references ol{padding-left:1.5em}
+.references li{font-size:.85rem;color:var(--fg-dim);margin-bottom:.5em;line-height:1.5}
+.references li em{color:var(--fg)}
+
+footer{text-align:center;padding:3em 1.5em;color:var(--fg-dim);font-size:.85rem;border-top:1px solid var(--border)}
+footer a{color:var(--accent2)}
+
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--fg-dim)}
+
+.expandable{margin:1.5em 0;border:1px solid var(--border);border-radius:4px;overflow:hidden}
+.expandable summary{padding:.8em 1.2em;background:var(--bg3);cursor:pointer;font-size:.9rem;color:var(--accent2);font-family:'Lucida Console',Monaco,monospace;letter-spacing:.03em;list-style:none;display:flex;align-items:center;gap:.5em}
+.expandable summary::before{content:'>';font-size:.7em;transition:transform .2s}
+details[open] summary::before{transform:rotate(90deg)}
+.expandable summary:hover{color:var(--fg)}
+.expandable .inner{padding:1.2em 1.4em;background:rgba(139,123,240,.04)}
+.expandable .inner p:last-child{margin-bottom:0}
+
+.note{font-size:.9rem;color:var(--fg-dim);margin:1em 0;padding:.6em 1em;border-left:2px solid var(--accent3);background:rgba(92,232,154,.05)}
+.warn{font-size:.9rem;color:var(--fg-dim);margin:1em 0;padding:.6em 1em;border-left:2px solid var(--accent4);background:rgba(232,90,122,.05)}
+.note strong,.warn strong{color:var(--fg)}
+
+table{width:100%;border-collapse:collapse;margin:1.5em 0;font-size:.9rem}
+th,td{padding:.5em .8em;border:1px solid var(--border);text-align:left;vertical-align:top}
+th{background:var(--bg3);color:var(--accent2);font-weight:400;font-family:'Lucida Console',Monaco,monospace;font-size:.76rem;letter-spacing:.03em}
+td{color:var(--fg-dim)}
+td code,p code,li code{font-family:'Lucida Console',Monaco,monospace;font-size:.85em;color:var(--accent3);background:rgba(92,232,154,.07);padding:.05em .3em;border-radius:2px}
+
+.xref{display:flex;flex-wrap:wrap;gap:.6em;margin:1.5em 0}
+.xref a{font-size:.8rem;padding:.5em 1em;border:1px solid var(--border);background:var(--bg3);font-family:'Lucida Console',Monaco,monospace;color:var(--fg-dim);border-bottom:none;border-radius:3px;transition:all .2s}
+.xref a:hover{color:var(--accent);border-color:var(--accent)}
+.xref a .k{display:block;font-size:.62rem;letter-spacing:.12em;color:var(--accent);margin-bottom:.2em}
+
+.pill{display:inline-block;font-family:'Lucida Console',monospace;font-size:.68rem;letter-spacing:.08em;text-transform:uppercase;padding:.15em .55em;border-radius:2px;border:1px solid var(--border);color:var(--fg-dim);margin-left:.4em;vertical-align:middle}
+</style>
+</head>
+<body>
+
+<header>
+  <canvas id="heroCanvas"></canvas>
+  <div class="content">
+    <div class="eyebrow">Neural Sound Synthesis &middot; Part 11 of 12</div>
+    <h1>Latent Diffusion: <em>Text-to-Audio</em></h1>
+    <p class="subtitle">
+      Diffusion made stunning images by denoising in a compressed latent, not on raw pixels.
+      Audio borrowed the trick wholesale: run the reverse process inside a learned, tiny
+      latent from a VAE, steer it with a shared text&ndash;audio embedding, and a plain
+      prompt becomes a barking dog, a rainstorm, or a full stereo track. Three live demos
+      build the picture from the spectrogram up.
+    </p>
+    <div class="people">
+      <span>Riffusion &middot; AudioLDM &middot; Stable Audio</span>
+      <span>CLAP &middot; classifier-free guidance</span>
+      <span>VAE latent &middot; U-Net / DiT denoiser</span>
+    </div>
+    <div class="cta">
+      <a href="#idea" class="btn">Begin &#8595;</a>
+      <a href="https://brendanjameslynskey.github.io/Neural_Sound_Synthesis/" class="btn btn-outline" target="_blank" rel="noopener">Series hub</a>
+    </div>
+  </div>
+</header>
+
+<nav id="toc">
+  <a href="#idea">1 &middot; The Idea</a>
+  <a href="#spec">2 &middot; Spectrogram Diffusion</a>
+  <a href="#latent">3 &middot; The VAE Latent</a>
+  <a href="#clap">4 &middot; Text Conditioning</a>
+  <a href="#systems">5 &middot; The Systems</a>
+  <a href="#vslm">6 &middot; Diffusion vs LM</a>
+  <a href="#timeline">7 &middot; Timeline</a>
+  <a href="#next">Next</a>
+</nav>
+
+<!-- ============================================================ -->
+<section id="idea">
+  <h2><span class="num">1</span>The idea — move the diffusion off the waveform</h2>
+  <p class="lead">
+    Part 8 ran diffusion directly on audio: start from noise, denoise toward a waveform or a
+    full-resolution spectrogram. It works, but it is punishingly expensive — every one of the
+    dozens-to-thousands of reverse steps evaluates a network over a signal with tens of
+    thousands of dimensions. <strong>Latent diffusion</strong> is the fix that unlocked
+    text-to-image (Rombach et&nbsp;al., 2022) and then text-to-audio: don't diffuse the signal,
+    diffuse a <em>compressed code</em> of it.
+  </p>
+
+  <p>
+    The recipe is two-stage. First, a <strong>variational autoencoder</strong> (Part 9) learns
+    to squeeze audio into a small continuous latent $\mathbf{z}$ and reconstruct it faithfully —
+    a perceptual compressor that throws away what the ear won't miss. Then a diffusion model is
+    trained to generate <em>in that latent</em>, and the VAE decoder turns each generated
+    $\mathbf{z}$ back into sound. The generative network never touches a raw sample; it works in
+    a space that may be dozens of times smaller.
+  </p>
+
+  <div class="math">
+    $$\mathbf{z} = \mathcal{E}(\mathbf{x}),\qquad
+      \mathcal{L}_{\text{LDM}} = \mathbb{E}_{\mathbf{z}_0,\,t,\,\epsilon}\big\|\,\epsilon - \epsilon_\theta(\mathbf{z}_t,\,t,\,\mathbf{c})\,\big\|^2,\qquad
+      \hat{\mathbf{x}} = \mathcal{D}(\hat{\mathbf{z}})$$
+  </div>
+
+  <p>
+    This is the ordinary denoising objective from Part 8 — predict the noise $\epsilon$ added
+    at level $t$ — with two changes: it lives on the latent $\mathbf{z}_t = \sqrt{\bar\alpha_t}\,\mathbf{z}_0 + \sqrt{1-\bar\alpha_t}\,\epsilon$
+    instead of the signal, and it takes a <strong>conditioning</strong> $\mathbf{c}$ — usually a
+    text embedding — injected through cross-attention. Cut the dimensionality and you cut both
+    the memory and the number of steps needed for a given quality; add the conditioning and the
+    same machine becomes a prompt-driven instrument.
+  </p>
+
+  <div class="grid-2">
+    <div class="note"><strong>Why it is cheap.</strong> A U-Net or DiT denoiser costs roughly the
+    square of the token count in its attention. Compress time&ndash;frequency by, say, 8&times; along
+    each axis before diffusing and you shrink that quadratic cost by orders of magnitude — the whole
+    reason latent diffusion runs on a single GPU.</div>
+    <div class="warn"><strong>The catch, inherited from Part 9.</strong> Quality is now capped by the
+    autoencoder. If the VAE can't represent a transient or a sibilant, no amount of diffusion in its
+    latent will recover it — the decoder can only ever hand back sounds it was trained to make.</div>
+  </div>
+
+  <p>
+    The rest of this part is the anatomy of that machine, one component per section: the image the
+    diffusion sees (§2), the latent it actually lives in (§3), and the text embedding that steers it (§4).
+  </p>
+</section>
+
+<!-- ============================================================ -->
+<section id="spec">
+  <h2><span class="num">2</span>Spectrograms as images — the Riffusion trick</h2>
+  <p class="lead">
+    The fastest route to text-to-audio, historically, skipped the custom latent entirely.
+    <strong>Riffusion</strong> (Forsgren &amp; Martiros, 2022) fine-tuned <em>Stable Diffusion
+    itself</em> — an image model — on pictures of mel spectrograms paired with text. A spectrogram
+    is, after all, just a greyscale image: time on one axis, frequency on the other, brightness for
+    energy. Diffuse the image, then invert it back to sound.
+  </p>
+
+  <p>
+    Inversion is the only audio-specific step. The magnitude spectrogram has thrown away phase, so a
+    vocoder must invent it: Riffusion used <strong>Griffin&ndash;Lim</strong>, which iterates
+    STFT&nbsp;&harr;&nbsp;inverse-STFT to hallucinate a phase consistent with the given magnitudes.
+    Because Stable Diffusion's latent is spatially smooth, two prompts can be interpolated and the
+    audio morphs seamlessly — and a spectrogram can be generated to loop, giving endless variations
+    of a groove.
+  </p>
+
+  <p>
+    The demo below is a teaching model of the <em>reverse</em> process operating in the image domain.
+    On the left is the target spectrogram of a short clip we generated. On the right, we corrupt it to
+    pure noise and then run reverse-diffusion steps that progressively denoise it back. To make a clean,
+    convergent trajectory you can watch, the demo uses the known target as an <em>oracle</em> — a real
+    trained $\epsilon_\theta$ estimates the same denoising direction, imperfectly. Set the step count,
+    press <em>Denoise</em>, then <em>Invert &amp; play</em> to hear the current spectrogram reconstructed
+    with oracle phase.
+  </p>
+
+  <div class="viz">
+    <canvas id="sdViz" height="280" aria-label="spectrogram diffusion denoiser — target versus a noisy spectrogram being denoised"></canvas>
+    <div class="controls">
+      <label>reverse steps <input type="range" id="sdSteps" min="4" max="60" step="1" value="24"><span class="val" id="sdStepsV">24</span></label>
+      <button id="sdDenoise">▶ Denoise</button>
+      <button id="sdPlay" class="btn-outline">▶ Invert &amp; play</button>
+      <button id="sdTarget" class="btn-outline">▶ Play target</button>
+    </div>
+    <div class="viz-caption" id="sdCap">Left: target spectrogram. Right: a fully-noised spectrogram. Press Denoise to run the reverse trajectory.</div>
+  </div>
+
+  <p class="note">
+    <strong>Try this:</strong> denoise with just <em>4</em> steps, invert and listen — the reconstruction
+    is grainy, the harmonics smeared. Now push the slider to <em>60</em> steps and repeat: each reverse
+    step removes a slice of noise variance, the harmonic combs sharpen, and the clip rings clean. That
+    step&ndash;quality trade is the single dial every diffusion sampler exposes.
+  </p>
+
+  <details class="expandable"><summary>the reverse step, and why more steps means cleaner audio</summary>
+    <div class="inner">
+      <p>Forward diffusion adds Gaussian noise on a schedule $\bar\alpha_t$, so a level-$t$ latent is
+      $\mathbf{z}_t=\sqrt{\bar\alpha_t}\,\mathbf{z}_0+\sqrt{1-\bar\alpha_t}\,\epsilon$. The trained network
+      predicts $\epsilon$, which gives an estimate of the clean signal
+      $\hat{\mathbf{z}}_0=(\mathbf{z}_t-\sqrt{1-\bar\alpha_t}\,\epsilon_\theta)/\sqrt{\bar\alpha_t}$, and
+      each reverse step nudges $\mathbf{z}_t$ toward $\mathbf{z}_{t-1}$ using it:</p>
+      <div class="math">$$\mathbf{z}_{t-1}=\sqrt{\bar\alpha_{t-1}}\,\hat{\mathbf{z}}_0+\sqrt{1-\bar\alpha_{t-1}}\,\epsilon_\theta(\mathbf{z}_t,t,\mathbf{c}).$$</div>
+      <p>Each step is a linear approximation to a curved probability-flow trajectory. Few steps means
+      large jumps that overshoot the curve — audibly, smeared transients and rough noise floors. Many
+      steps hug the curve and land closer to the true data manifold. Fast samplers (DDIM, DPM-Solver)
+      buy back most of the quality at low step counts by using higher-order updates; the demo's linear
+      oracle blend is the intuition, not the production sampler.</p>
+    </div>
+  </details>
+</section>
+
+<!-- ============================================================ -->
+<section id="latent">
+  <h2><span class="num">3</span>The VAE latent — a small, smooth space to walk in</h2>
+  <p class="lead">
+    Riffusion diffuses full spectrogram images; modern audio systems diffuse a purpose-built
+    <strong>continuous latent</strong> from an audio VAE (Part 9). Two properties make that latent the
+    right place to work. It is <em>compact</em> — Stable Audio's autoencoder compresses 44.1&nbsp;kHz
+    stereo by a large factor, so the diffusion model sees a short sequence of fat vectors instead of a
+    huge spectrogram. And it is <em>smooth</em>: the VAE's KL prior packs the codes into a well-behaved
+    region where nearby points decode to perceptually nearby sounds.
+  </p>
+
+  <p>
+    Smoothness is what makes generation and interpolation work. If a straight line between two latents
+    passed through "holes" that decode to garbage, diffusion — which spends its whole trajectory moving
+    through that space — would keep falling into them. Instead you can take two codes and walk between
+    them, and the sound morphs continuously. Drag the slider to walk the latent path below; the
+    spectrogram at the current point is decoded live, and you can hear either endpoint.
+  </p>
+
+  <div class="viz">
+    <canvas id="lwViz" height="280" aria-label="latent walk — a spectrogram morphing along an interpolation between two latent codes"></canvas>
+    <div class="controls">
+      <label>walk t <input type="range" id="lwT" min="0" max="1" step="0.01" value="0"><span class="val" id="lwTV">0.00</span></label>
+      <button id="lwWalk">▶ Auto-walk</button>
+      <button id="lwPlayA" class="btn-outline">▶ Endpoint A</button>
+      <button id="lwPlayCur">▶ Current</button>
+      <button id="lwPlayB" class="btn-outline">▶ Endpoint B</button>
+    </div>
+    <div class="viz-caption" id="lwCap">t = 0.00 — endpoint A. Drag the slider to interpolate the latent; the spectrogram is decoded at each point.</div>
+  </div>
+
+  <p>
+    Endpoint A is a low, dark, near-harmonic tone; B is a high, bright, slightly inharmonic and noisier
+    one. Notice the morph is <em>monotone</em> — brightness, pitch and noisiness slide together with no
+    sudden jumps. That is the geometric property a diffusion model relies on, and the reason latent
+    interpolation is a headline feature of these systems rather than an accident.
+  </p>
+
+  <div class="note">
+    <strong>Latent vs pixel diffusion, in one line.</strong> The VAE decoder shoulders fidelity; the
+    diffusion model only has to place a distribution over a friendly low-dimensional code. The same
+    division of labour recurs across the field — codecs+LMs (Part 10), latent+diffusion here.
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="clap">
+  <h2><span class="num">4</span>Text conditioning — CLAP and classifier-free guidance</h2>
+  <p class="lead">
+    A latent diffusion model generates <em>something</em> from noise; text conditioning decides
+    <em>what</em>. The bridge is a <strong>shared text&ndash;audio embedding space</strong>. CLAP
+    (Contrastive Language&ndash;Audio Pretraining) trains an audio encoder and a text encoder together
+    so that a clip and its caption land at nearly the same point — the audio twin of CLIP. AudioLDM
+    (Liu et&nbsp;al., 2023) leaned on this so heavily it called the CLAP embedding the "language of
+    audio": at training time it conditions on the <em>audio's</em> CLAP embedding, and at inference
+    swaps in the <em>text's</em> — the shared space makes them interchangeable.
+  </p>
+
+  <p>
+    The contrastive objective is the InfoNCE loss: pull matched text/audio pairs together, push
+    mismatched ones apart, across a batch of $N$.
+  </p>
+  <div class="math">
+    $$\mathcal{L}_{\text{CLAP}} = -\frac{1}{N}\sum_{i=1}^{N}\log\frac{\exp\!\big(\langle \mathbf{t}_i,\mathbf{a}_i\rangle/\tau\big)}{\sum_{j=1}^{N}\exp\!\big(\langle \mathbf{t}_i,\mathbf{a}_j\rangle/\tau\big)}$$
+  </div>
+  <p>
+    with $\mathbf{t}_i,\mathbf{a}_i$ the L2-normalised text and audio embeddings and $\tau$ a temperature.
+    The map below is a cartoon of the result: four prompts (squares) and their matching audio clips
+    (circles) sit close in a 2-D joint space. Pick a prompt and press <em>Generate</em> — a sample is
+    pulled from the prior mean toward the prompt's region. The strength of that pull is
+    <strong>classifier-free guidance</strong>.
+  </p>
+
+  <div class="viz">
+    <canvas id="clapViz" height="320" aria-label="CLAP joint text-audio embedding map with a generated sample pulled toward a chosen prompt"></canvas>
+    <div class="controls">
+      <div class="tabrow" id="clapTabs">
+        <button data-i="0" class="on">a barking dog</button>
+        <button data-i="1">gentle piano</button>
+        <button data-i="2">rain</button>
+        <button data-i="3">techno beat</button>
+      </div>
+      <label>guidance w <input type="range" id="clapW" min="0" max="6" step="0.1" value="1.0"><span class="val" id="clapWV">1.0</span></label>
+      <button id="clapGen">▶ Generate</button>
+    </div>
+    <div class="viz-caption" id="clapCap">■ text embedding  ● audio embedding  ○ generated sample. Pick a prompt and press Generate.</div>
+  </div>
+
+  <p>
+    Classifier-free guidance (Ho &amp; Salimans, 2021) is the workhorse that makes prompts <em>bite</em>.
+    You train one network to predict noise both with the condition and without it (dropping $\mathbf{c}$
+    some fraction of the time), then at sampling time extrapolate away from the unconditional prediction:
+  </p>
+  <div class="math">
+    $$\tilde\epsilon_\theta(\mathbf{z}_t,\mathbf{c}) = \epsilon_\theta(\mathbf{z}_t,\varnothing) + w\,\big(\epsilon_\theta(\mathbf{z}_t,\mathbf{c}) - \epsilon_\theta(\mathbf{z}_t,\varnothing)\big)$$
+  </div>
+  <p>
+    At $w=0$ the sample ignores the prompt (the mean of the prior); at $w=1$ it is the plain conditional;
+    at $w>1$ it is pushed <em>past</em> the conditional, harder onto the prompt. Slide the guidance up in
+    the demo and the generated point marches out toward — and then overshoots — the prompt cluster, exactly
+    as the equation says. Overshoot is the double edge: high $w$ nails the prompt but flattens diversity and
+    can distort, which is why real systems tune $w$ to a sweet spot around $3$&ndash;$7$.
+  </p>
+
+  <p class="warn">
+    <strong>The guidance you hear.</strong> Press Generate on each prompt — the demo synthesises a crude
+    representative sound for that label. In a real system the same guidance vector isn't a toy 2-D arrow but
+    a high-dimensional cross-attention conditioning that steers every reverse step of the latent diffusion.
+  </p>
+</section>
+
+<!-- ============================================================ -->
+<section id="systems">
+  <h2><span class="num">5</span>The systems — from spectrogram hack to stereo tracks</h2>
+  <p class="lead">
+    In two years the field went from repurposing an image model to purpose-built stereo music generators.
+    The through-line is constant — diffusion in a latent, conditioned on text — and the differences are in
+    the autoencoder, the backbone, and the conditioning.
+  </p>
+
+  <table>
+    <thead><tr><th>System</th><th>Year</th><th>What it diffuses</th><th>Conditioning &amp; backbone</th></tr></thead>
+    <tbody>
+      <tr><td><strong style="color:var(--accent)">Riffusion</strong></td><td>2022</td>
+        <td>Mel-spectrogram <em>images</em> in Stable Diffusion's VAE latent</td>
+        <td>Fine-tuned Stable Diffusion + CLIP text; U-Net; Griffin&ndash;Lim inversion</td></tr>
+      <tr><td><strong style="color:var(--accent2)">AudioLDM</strong></td><td>2023</td>
+        <td>A mel-spectrogram VAE latent, trained on audio only</td>
+        <td>Conditioned on CLAP embeddings ("language of audio"); U-Net; HiFi-GAN vocoder</td></tr>
+      <tr><td><strong style="color:var(--accent2)">AudioLDM&nbsp;2</strong></td><td>2023</td>
+        <td>Same latent, unified across speech / music / SFX</td>
+        <td>A "language of audio" (AudioMAE) target predicted by a GPT front-end; more general conditioning</td></tr>
+      <tr><td><strong style="color:var(--accent3)">Make-An-Audio · Tango</strong></td><td>2023</td>
+        <td>Spectrogram / mel latents</td>
+        <td>CLAP or an instruction-tuned LLM (FLAN-T5, in Tango) as the text encoder</td></tr>
+      <tr><td><strong style="color:var(--accent5)">MusicLDM</strong></td><td>2023</td>
+        <td>Music-domain latent</td>
+        <td>CLAP conditioning + beat-synchronous mixup to fight training-data memorisation</td></tr>
+      <tr><td><strong style="color:var(--accent4)">Stable Audio</strong></td><td>2023&ndash;24</td>
+        <td>A highly-compressed <em>waveform</em> autoencoder latent — full 44.1&nbsp;kHz stereo</td>
+        <td>Text + <strong>timing embeddings</strong> for variable-length tracks; DiT (transformer) backbone</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    <strong>Stable Audio</strong> (Evans et&nbsp;al., 2023/24) is the clearest departure. It abandons the
+    spectrogram entirely for a heavily-compressed autoencoder that maps stereo waveform straight to latent
+    and back, so there is no separate vocoder and no phase to hallucinate. It replaces the U-Net with a
+    <strong>diffusion transformer</strong> (DiT), and — crucially — adds a <em>timing-conditioning
+    embedding</em> that tells the model the desired duration and offset, letting one model produce
+    variable-length clips up to minutes long instead of a fixed window. That combination — waveform latent,
+    DiT, timing control — is what turned text-to-audio from short sound-effects into full musical structures.
+  </p>
+
+  <blockquote>
+    Every one of these is the same sentence with different nouns: encode audio to a latent, learn to
+    denoise that latent, steer the denoising with a text embedding, decode back to sound. The research is
+    in choosing each noun well.
+  </blockquote>
+</section>
+
+<!-- ============================================================ -->
+<section id="vslm">
+  <h2><span class="num">6</span>Diffusion vs the token-LM route</h2>
+  <p class="lead">
+    Part 10 generated audio the other way: quantise it into discrete tokens with a codec, then predict
+    the next token with a transformer language model. Latent diffusion and token-LMs are the two dominant
+    paradigms for text-to-audio, and they make opposite bets on almost every axis.
+  </p>
+
+  <div class="grid-2">
+    <div>
+      <h4>Diffusion (this part)</h4>
+      <ul>
+        <li><strong>Continuous</strong> latent; <strong>non-autoregressive</strong> — the whole clip is
+        refined in parallel over reverse steps.</li>
+        <li>Strong on <strong>texture and timbre</strong>: dense, stationary content like pads, rain, or
+        rich instrumental mixes.</li>
+        <li>Quality&ndash;speed dial is the <strong>step count</strong>; fast samplers shrink it.</li>
+        <li>Global coherence comes for free (all positions denoised together); very long-range musical
+        <em>form</em> is harder.</li>
+      </ul>
+    </div>
+    <div>
+      <h4>Token language model (Part 10)</h4>
+      <ul>
+        <li><strong>Discrete</strong> tokens; <strong>autoregressive</strong> — one token at a time,
+        left to right.</li>
+        <li>Strong on <strong>long structure</strong>: verse&ndash;chorus form, lyrics, sequences that
+        must stay consistent over time.</li>
+        <li>Quality&ndash;speed dial is <strong>sequence length</strong> &times; codebooks; slow to sample.</li>
+        <li>Inherits the transformer's toolbox — in-context prompting, scaling laws — directly.</li>
+      </ul>
+    </div>
+  </div>
+
+  <p>
+    The lines are blurring. MusicGen (Part 10) is an AR transformer over codec tokens; Stable Audio is a
+    diffusion transformer over a continuous latent — <em>both</em> use a transformer backbone, differing
+    only in whether it predicts discrete tokens autoregressively or denoises a continuous latent in
+    parallel. Hybrids exist too: diffusion over <em>continuous</em> codec features, or LM-planned coarse
+    structure refined by a diffusion decoder. The primitives from Part 1 are being recombined, not chosen
+    between.
+  </p>
+
+  <div class="note">
+    <strong>Rule of thumb.</strong> If the task is a texture, a stem, or a short richly-timbred clip, reach
+    for diffusion. If it needs to hold a form or follow lyrics over tens of seconds, an autoregressive LM
+    still has the edge — and increasingly the answer is one transformer wearing whichever hat the task needs.
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="timeline">
+  <h2><span class="num">7</span>Latent diffusion for audio, 2022 → 2024</h2>
+  <p>
+    A compressed three-year arc: from bolting text onto an image model to native, minutes-long stereo
+    generation. Part 12 picks up where this leaves off — real-time control and the frontier.
+  </p>
+  <div class="timeline">
+    <div class="timeline-item"><div class="timeline-year">2022</div><div class="timeline-text"><strong>Latent Diffusion / Stable Diffusion</strong> (Rombach et&nbsp;al.) establishes diffusion in a VAE latent for images — the template the whole field copies. <span class="pill">Part 8 · 9</span></div></div>
+    <div class="timeline-item"><div class="timeline-year">Dec 2022</div><div class="timeline-text"><strong>Riffusion</strong> fine-tunes Stable Diffusion on spectrogram images with text; seamless looping and prompt interpolation, Griffin&ndash;Lim to audio. <span class="pill">§2</span></div></div>
+    <div class="timeline-item"><div class="timeline-year">early 2023</div><div class="timeline-text"><strong>AudioLDM</strong>, <strong>Make-An-Audio</strong> and <strong>Tango</strong> bring CLAP-/LLM-conditioned latent diffusion to general text-to-audio; <strong>MusicLDM</strong> targets music. <span class="pill">§4 · 5</span></div></div>
+    <div class="timeline-item"><div class="timeline-year">mid 2023</div><div class="timeline-text"><strong>AudioLDM&nbsp;2</strong> unifies speech, music and sound effects under a single "language of audio" target. <span class="pill">§5</span></div></div>
+    <div class="timeline-item"><div class="timeline-year">2023&ndash;24</div><div class="timeline-text"><strong>Stable Audio</strong> &amp; <strong>Stable Audio 2</strong> deliver variable-length 44.1&nbsp;kHz stereo via a waveform-latent DiT with timing conditioning. <span class="pill">§5 · Part 12</span></div></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="next">
+  <h2><span class="num">→</span>Where to go next</h2>
+  <p>
+    You now have the second great text-to-audio paradigm end to end: a VAE latent to work in, a diffusion
+    model to place a distribution over it, and a CLAP embedding with classifier-free guidance to steer it
+    from a prompt. The finale asks the questions this all raises — how do we <em>judge</em> the output, and
+    can we run it live?
+  </p>
+  <div class="xref">
+    <a href="https://brendanjameslynskey.github.io/Neural_Sound_Synthesis/"><span class="k">Series hub</span>All twelve parts &middot; the interactive map</a>
+    <a href="https://brendanjameslynskey.github.io/Neural_Sound_Synthesis_10_LM_Music_Generation/"><span class="k">Part 10 ←</span>Language-Model Music Generation</a>
+    <a href="https://brendanjameslynskey.github.io/Neural_Sound_Synthesis_12_Realtime_Control_Frontiers/"><span class="k">Part 12 →</span>Real-Time Control &amp; Frontiers</a>
+    <a href="https://github.com/BrendanJamesLynskey/DSP_and_Music"><span class="k">Collection</span>DSP &amp; Music</a>
+  </div>
+  <div class="references">
+    <h3>References</h3>
+    <ol>
+      <li>Rombach, R. et&nbsp;al. (2022). <em>High-Resolution Image Synthesis with Latent Diffusion Models.</em> CVPR. (Stable Diffusion.)</li>
+      <li>Forsgren, S. &amp; Martiros, H. (2022). <em>Riffusion: Stable Diffusion for Real-Time Music Generation.</em> riffusion.com.</li>
+      <li>Liu, H. et&nbsp;al. (2023). <em>AudioLDM: Text-to-Audio Generation with Latent Diffusion Models.</em> ICML.</li>
+      <li>Liu, H. et&nbsp;al. (2023). <em>AudioLDM 2: Learning Holistic Audio Generation with Self-Supervised Pretraining.</em> arXiv:2308.05734.</li>
+      <li>Evans, Z. et&nbsp;al. (2024). <em>Fast Timing-Conditioned Latent Audio Diffusion.</em> (Stable Audio.) ICML; and <em>Stable Audio 2.</em></li>
+      <li>Wu, Y. et&nbsp;al. (2023). <em>Large-Scale Contrastive Language-Audio Pretraining (CLAP).</em> ICASSP.</li>
+      <li>Ho, J. &amp; Salimans, T. (2021). <em>Classifier-Free Diffusion Guidance.</em> NeurIPS Workshop.</li>
+      <li>Ghosal, D. et&nbsp;al. (2023). <em>Text-to-Audio Generation using Instruction-Tuned LLM and Latent Diffusion (Tango).</em> arXiv:2304.13731.</li>
+    </ol>
+  </div>
+</section>
+
+<footer>
+  <p>
+    Neural Sound Synthesis &middot; Part 11 — Latent Diffusion: Text-to-Audio<br>
+    Part of the <a href="https://github.com/BrendanJamesLynskey/DSP_and_Music" target="_blank" rel="noopener">DSP &amp; Music</a> collection &middot;
+    single-file HTML/CSS/JS &middot; Web Audio API &middot; KaTeX &middot; no dependencies.
+  </p>
+</footer>
+
+<script>
+(function(){
+"use strict";
+// ── utilities ─────────────────────────────────────────────────
+const DPR=window.devicePixelRatio||1;
+function setupCanvas(c,w,h){ c.width=Math.round(w*DPR); c.height=Math.round(h*DPR); c.style.height=h+'px'; const x=c.getContext('2d'); x.setTransform(DPR,0,0,DPR,0,0); return x; }
+function fitWidth(c){ const r=c.parentElement.getBoundingClientRect(); return Math.max(320,Math.floor(r.width)); }
+let audioCtx=null;
+function actx(){ if(!audioCtx) audioCtx=new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended') audioCtx.resume(); return audioCtx; }
+function play(samples,sr){ const a=actx(); const b=a.createBuffer(1,samples.length,sr); b.getChannelData(0).set(samples); const s=a.createBufferSource(); s.buffer=b; const g=a.createGain(); g.gain.value=0.9; s.connect(g); g.connect(a.destination); s.start(); return s; }
+function fade(buf,n){ const N=buf.length,k=Math.min(n,N>>1); for(let i=0;i<k;i++){ buf[i]*=i/k; buf[N-1-i]*=i/k; } return buf; }
+
+const SR=16000;
+
+// ── shared: simple magnitude STFT → log bands (from Part 1) ────
+function spectrogram(x, frame=512, hop=128, bands=48){
+  const win=new Float32Array(frame); for(let i=0;i<frame;i++) win[i]=0.5-0.5*Math.cos(2*Math.PI*i/(frame-1));
+  const nFrames=Math.max(1,Math.floor((x.length-frame)/hop)+1);
+  const half=frame/2;
+  const edges=new Array(bands+1); const fmin=60,fmax=SR/2;
+  for(let b=0;b<=bands;b++){ edges[b]=fmin*Math.pow(fmax/fmin,b/bands); }
+  const binHz=SR/frame;
+  const spec=[];
+  for(let f=0;f<nFrames;f++){
+    const re=new Float32Array(half), im=new Float32Array(half);
+    const off=f*hop;
+    for(let k=0;k<half;k++){ let r=0,i=0; const w=2*Math.PI*k/frame; for(let n=0;n<frame;n++){ const s=x[off+n]*win[n]; r+=s*Math.cos(w*n); i-=s*Math.sin(w*n); } re[k]=r; im[k]=i; }
+    const mag=new Float32Array(half); for(let k=0;k<half;k++) mag[k]=Math.hypot(re[k],im[k]);
+    const band=new Float32Array(bands);
+    for(let b=0;b<bands;b++){ const lo=edges[b]/binHz, hi=edges[b+1]/binHz; let s=0,c=0; for(let k=Math.max(1,Math.floor(lo));k<=Math.min(half-1,Math.ceil(hi));k++){ s+=mag[k]; c++; } band[b]=c>0?s/c:0; }
+    for(let b=0;b<bands;b++) band[b]=Math.log10(1+band[b]*40);
+    spec.push(band);
+  }
+  let mx=1e-9; for(const fr of spec) for(const v of fr) mx=Math.max(mx,v);
+  for(const fr of spec) for(let b=0;b<fr.length;b++) fr[b]/=mx;
+  return spec;
+}
+function specColor(v){ const a=Math.max(0,Math.min(1,v)); const r=Math.round(20+a*a*90+a*30); const g=Math.round(30+a*150); const b=Math.round(50+a*200); return `rgb(${r},${g},${b})`; }
+
+// ── DEMO 1: spectrogram diffusion denoiser ────────────────────
+(function specDiff(){
+  const c=document.getElementById('sdViz'); if(!c) return;
+  const cap=document.getElementById('sdCap'); const H=280;
+  let W=fitWidth(c); let ctx=setupCanvas(c,W,H);
+  const stepsEl=document.getElementById('sdSteps'), stepsV=document.getElementById('sdStepsV');
+  const denoiseBtn=document.getElementById('sdDenoise'), playBtn=document.getElementById('sdPlay'), tgtBtn=document.getElementById('sdTarget');
+  const SRd=16000, DUR=0.5, FRAME=256, HOP=128, HALF=128, CC=60;
+  function genTarget(){
+    const N=Math.floor(SRd*DUR); const x=new Float32Array(N);
+    const notes=[261.6,329.6,392.0,523.3]; const seg=N/notes.length;
+    for(let n=0;n<N;n++){ const t=n/SRd; const gi=Math.min(notes.length-1,Math.floor(n/seg)); const lt=(n-gi*seg)/SRd; const env=Math.exp(-lt*6)*Math.min(1,lt*200); let s=0; const f0=notes[gi]; for(let h=1;h<=6;h++){ s+=(1/h)*Math.sin(2*Math.PI*f0*h*t); } x[n]=env*s*0.5; }
+    let m=0; for(let n=0;n<N;n++) m=Math.max(m,Math.abs(x[n])); if(m>0) for(let n=0;n<N;n++) x[n]/=m*1.05; return x;
+  }
+  const clip=genTarget();
+  const win=new Float32Array(FRAME); for(let i=0;i<FRAME;i++) win[i]=0.5-0.5*Math.cos(2*Math.PI*i/(FRAME-1));
+  const frames=[];
+  for(let off=0; off+FRAME<=clip.length; off+=HOP){
+    const mag=new Float32Array(HALF), ph=new Float32Array(HALF);
+    for(let k=0;k<HALF;k++){ let re=0,im=0; const w=2*Math.PI*k/FRAME; for(let n=0;n<FRAME;n++){ const s=clip[off+n]*win[n]; re+=s*Math.cos(w*n); im-=s*Math.sin(w*n); } mag[k]=Math.hypot(re,im); ph[k]=Math.atan2(im,re); }
+    frames.push({mag,ph,off});
+  }
+  const NF=frames.length;
+  let Mmax=1e-9; for(const f of frames) for(let k=0;k<HALF;k++) Mmax=Math.max(Mmax,f.mag[k]);
+  const logMax=Math.log10(1+Mmax*CC);
+  const dispTgt=frames.map(f=>{ const d=new Float32Array(HALF); for(let k=0;k<HALF;k++) d[k]=Math.log10(1+f.mag[k]*CC)/logMax; return d; });
+  function noisy(){ return dispTgt.map(()=>{ const a=new Float32Array(HALF); for(let k=0;k<HALF;k++) a[k]=Math.random(); return a; }); }
+  let D=noisy();
+  function reverseTo(alpha){ const nl=1-alpha; for(let f=0;f<NF;f++) for(let k=0;k<HALF;k++){ D[f][k]=Math.max(0,Math.min(1, dispTgt[f][k]*alpha + nl*Math.random())); } }
+  function reconstruct(){
+    const N=clip.length; const out=new Float32Array(N); const norm=new Float32Array(N);
+    for(let fi=0; fi<NF; fi++){
+      const off=frames[fi].off;
+      const re=new Float32Array(HALF), im=new Float32Array(HALF);
+      for(let k=0;k<HALF;k++){ const mag=(Math.pow(10, D[fi][k]*logMax)-1)/CC; const p=frames[fi].ph[k]; re[k]=mag*Math.cos(p); im[k]=mag*Math.sin(p); }
+      for(let n=0;n<FRAME;n++){ let s=re[0]; const base=2*Math.PI*n/FRAME; for(let k=1;k<HALF;k++){ s+=2*(re[k]*Math.cos(base*k)-im[k]*Math.sin(base*k)); } s/=FRAME; const wv=win[n]; out[off+n]+=s*wv; norm[off+n]+=wv*wv; }
+    }
+    for(let n=0;n<N;n++){ if(norm[n]>1e-6) out[n]/=norm[n]; }
+    let m=0; for(let n=0;n<N;n++) m=Math.max(m,Math.abs(out[n])); if(m>0) for(let n=0;n<N;n++) out[n]/=m*1.05; return fade(out,150);
+  }
+  function drawGrid(grid,x0,w){ const cw=w/NF, ch=(H-40)/HALF; for(let f=0;f<NF;f++) for(let k=0;k<HALF;k++){ ctx.fillStyle=specColor(grid[f][k]); ctx.fillRect(x0+f*cw, 24+(HALF-1-k)*ch, cw+1, ch+1); } }
+  function draw(){
+    ctx.fillStyle='#12141c'; ctx.fillRect(0,0,W,H);
+    const gap=15, half=(W-24-gap)/2;
+    ctx.fillStyle='#8a8d9a'; ctx.font="11px 'Lucida Console',monospace"; ctx.textAlign='left';
+    ctx.fillText('TARGET (generated clip)',12,16);
+    ctx.fillText('DIFFUSION STATE',12+half+gap,16);
+    drawGrid(dispTgt,12,half); drawGrid(D,12+half+gap,half);
+  }
+  let raf=null;
+  function denoise(){
+    cancelAnimationFrame(raf); const steps=+stepsEl.value; D=noisy(); let k=0;
+    function tick(){
+      const alpha=k/steps; reverseTo(alpha); draw();
+      cap.textContent='reverse step '+k+' / '+steps+'  ·  noise σ ≈ '+(1-alpha).toFixed(2);
+      if(k<steps){ k++; raf=requestAnimationFrame(tick); }
+      else cap.textContent='converged — press ▶ Invert & play to hear it (oracle phase)';
+    }
+    tick();
+  }
+  stepsEl.addEventListener('input',()=>{ stepsV.textContent=(+stepsEl.value); });
+  denoiseBtn.addEventListener('click',denoise);
+  playBtn.addEventListener('click',()=>{ play(reconstruct(),SRd); });
+  tgtBtn.addEventListener('click',()=>{ play(fade(clip.slice(),150),SRd); });
+  window.addEventListener('resize',()=>{ W=fitWidth(c); ctx=setupCanvas(c,W,H); draw(); });
+  draw();
+})();
+
+// ── DEMO 2: CLAP text↔audio embedding map ─────────────────────
+(function clap(){
+  const c=document.getElementById('clapViz'); if(!c) return;
+  const cap=document.getElementById('clapCap'); const H=320;
+  let W=fitWidth(c); let ctx=setupCanvas(c,W,H);
+  const wEl=document.getElementById('clapW'), wV=document.getElementById('clapWV'), genBtn=document.getElementById('clapGen'), tabs=document.getElementById('clapTabs');
+  const cats=[
+    {name:'a barking dog', t:[0.18,0.26], a:[0.26,0.32], col:'#e8a44a', synth:'dog'},
+    {name:'gentle piano',  t:[0.80,0.22], a:[0.72,0.30], col:'#5ce89a', synth:'piano'},
+    {name:'rain',          t:[0.22,0.78], a:[0.30,0.70], col:'#4ac7e8', synth:'rain'},
+    {name:'techno beat',   t:[0.80,0.80], a:[0.72,0.72], col:'#e85a7a', synth:'techno'}
+  ];
+  const mean=[0.5,0.5];
+  let sel=0, genPos=null, anim=0, raf=null, running=false;
+  function mapX(v){ return 44+Math.max(0,Math.min(1,v))*(W-88); }
+  function mapY(v){ return 28+(1-Math.max(0,Math.min(1,v)))*(H-64); }
+  function targetPos(){ const cc=cats[sel]; const w=+wEl.value; return [ mean[0]+w*(cc.a[0]-mean[0]), mean[1]+w*(cc.a[1]-mean[1]) ]; }
+  function draw(){
+    ctx.fillStyle='#12141c'; ctx.fillRect(0,0,W,H);
+    ctx.strokeStyle='rgba(139,123,240,0.10)'; ctx.lineWidth=1;
+    for(let g=0;g<=4;g++){ ctx.beginPath(); ctx.moveTo(mapX(g/4),mapY(0)); ctx.lineTo(mapX(g/4),mapY(1)); ctx.stroke(); ctx.beginPath(); ctx.moveTo(mapX(0),mapY(g/4)); ctx.lineTo(mapX(1),mapY(g/4)); ctx.stroke(); }
+    cats.forEach((cc,i)=>{
+      ctx.strokeStyle=cc.col+'66'; ctx.setLineDash([3,3]); ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(mapX(cc.t[0]),mapY(cc.t[1])); ctx.lineTo(mapX(cc.a[0]),mapY(cc.a[1])); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle=cc.col; ctx.beginPath(); ctx.arc(mapX(cc.a[0]),mapY(cc.a[1]),6,0,7); ctx.fill();
+      const tx=mapX(cc.t[0]),ty=mapY(cc.t[1]); ctx.fillStyle=i===sel?cc.col:'#12141c'; ctx.strokeStyle=cc.col; ctx.lineWidth=2; ctx.fillRect(tx-5,ty-5,10,10); ctx.strokeRect(tx-5,ty-5,10,10);
+      ctx.fillStyle=cc.col; ctx.font="10px 'Lucida Console',monospace"; ctx.textAlign='left'; ctx.fillText('“'+cc.name+'”', tx+9, ty+3);
+    });
+    ctx.fillStyle='#8a8d9a'; ctx.beginPath(); ctx.arc(mapX(mean[0]),mapY(mean[1]),4,0,7); ctx.fill();
+    ctx.font="10px 'Lucida Console',monospace"; ctx.fillText('prior mean (w=0)', mapX(mean[0])+7, mapY(mean[1])-6);
+    if(genPos){
+      ctx.strokeStyle='rgba(255,255,255,0.35)'; ctx.lineWidth=1; ctx.setLineDash([2,3]); ctx.beginPath(); ctx.moveTo(mapX(mean[0]),mapY(mean[1])); ctx.lineTo(mapX(genPos[0]),mapY(genPos[1])); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle=cats[sel].col; ctx.beginPath(); ctx.arc(mapX(genPos[0]),mapY(genPos[1]),7,0,7); ctx.fill(); ctx.strokeStyle='#fff'; ctx.lineWidth=1.5; ctx.stroke();
+    }
+    ctx.fillStyle='#8a8d9a'; ctx.font="10px 'Lucida Console',monospace"; ctx.textAlign='left';
+    ctx.fillText('■ text embedding   ● audio embedding   ○ generated sample', 44, H-8);
+  }
+  // representative synths
+  function synth(kind){
+    const N=Math.floor(SR*0.6), x=new Float32Array(N);
+    if(kind==='dog'){ for(let n=0;n<N;n++){ const t=n/SR; const rep=(t%0.3); const env=Math.exp(-rep*14)*(rep<0.18?1:0); const f=280+120*Math.exp(-rep*20); x[n]=env*(0.6*Math.sin(2*Math.PI*f*t)+0.5*(Math.random()*2-1))*(1/(1+Math.pow((f-500)/400,2))+0.4); } }
+    else if(kind==='piano'){ for(let n=0;n<N;n++){ const t=n/SR; const env=Math.min(1,t*120)*Math.exp(-t*3.2); let s=0; const f0=329.6; for(let h=1;h<=8;h++){ s+=Math.pow(h,-1.3)*Math.sin(2*Math.PI*f0*h*(1+0.0006*h)*t); } x[n]=env*s*0.4; } }
+    else if(kind==='rain'){ let lp=0; for(let n=0;n<N;n++){ const t=n/SR; const nz=Math.random()*2-1; lp=lp*0.6+nz*0.4; const env=0.5+0.5*Math.sin(2*Math.PI*3*t); x[n]=lp*0.7*env; } }
+    else { for(let n=0;n<N;n++){ const t=n/SR; const beat=(t%0.15); const kick=Math.exp(-beat*30)*Math.sin(2*Math.PI*(120*Math.exp(-beat*25)+45)*t); const hat=(beat>0.07&&beat<0.09)?(Math.random()*2-1)*0.3*Math.exp(-(beat-0.07)*300):0; x[n]=0.8*kick+hat; } }
+    let m=0; for(let n=0;n<N;n++) m=Math.max(m,Math.abs(x[n])); if(m>0) for(let n=0;n<N;n++) x[n]/=m*1.05; return fade(x,120);
+  }
+  function generate(){
+    cancelAnimationFrame(raf); running=true; anim=0; const tp=targetPos();
+    function step(){
+      anim+=0.06; const e=Math.min(1,anim); const ease=1-Math.pow(1-e,3);
+      genPos=[ mean[0]+ease*(tp[0]-mean[0]), mean[1]+ease*(tp[1]-mean[1]) ]; draw();
+      cap.textContent='generating “'+cats[sel].name+'”  ·  guidance w = '+(+wEl.value).toFixed(1)+(+wEl.value>1?'  (overshooting the prompt)':'');
+      if(e<1){ raf=requestAnimationFrame(step); } else { running=false; play(synth(cats[sel].synth),SR); }
+    }
+    step();
+  }
+  tabs.addEventListener('click',e=>{ const b=e.target.closest('button'); if(!b) return; sel=+b.dataset.i; [...tabs.children].forEach(x=>x.classList.toggle('on',x===b)); genPos=null; draw(); });
+  wEl.addEventListener('input',()=>{ wV.textContent=(+wEl.value).toFixed(1); if(genPos&&!running){ genPos=targetPos(); } draw(); });
+  genBtn.addEventListener('click',generate);
+  window.addEventListener('resize',()=>{ W=fitWidth(c); ctx=setupCanvas(c,W,H); draw(); });
+  draw();
+})();
+
+// ── DEMO 3: latent walk ───────────────────────────────────────
+(function latentWalk(){
+  const c=document.getElementById('lwViz'); if(!c) return;
+  const cap=document.getElementById('lwCap'); const H=280;
+  let W=fitWidth(c); let ctx=setupCanvas(c,W,H);
+  const tEl=document.getElementById('lwT'), tV=document.getElementById('lwTV'), walkBtn=document.getElementById('lwWalk');
+  const playA=document.getElementById('lwPlayA'), playB=document.getElementById('lwPlayB'), playCur=document.getElementById('lwPlayCur');
+  const SRl=16000, DURl=0.45;
+  const A={f0:174.6,bright:0.22,inh:0.0,vib:3,noise:0.02};
+  const B={f0:392.0,bright:0.92,inh:0.5,vib:6,noise:0.28};
+  const lerp=(a,b,t)=>a+(b-a)*t;
+  function decode(t){ return {f0:lerp(A.f0,B.f0,t),bright:lerp(A.bright,B.bright,t),inh:lerp(A.inh,B.inh,t),vib:lerp(A.vib,B.vib,t),noise:lerp(A.noise,B.noise,t)}; }
+  function synth(p){
+    const N=Math.floor(SRl*DURl), x=new Float32Array(N);
+    const nH=Math.floor(6+p.bright*18);
+    for(let n=0;n<N;n++){ const t=n/SRl; const env=Math.min(1,t*80)*Math.exp(-t*3.2); let s=0;
+      for(let h=1;h<=nH;h++){ const f=p.f0*h*(1+p.inh*0.0015*h); if(f>SRl/2) break; const amp=Math.pow(h,-(1.7-p.bright)); s+=amp*Math.sin(2*Math.PI*f*t+0.3*Math.sin(2*Math.PI*p.vib*t)); }
+      s+=p.noise*(Math.random()*2-1)*Math.exp(-t*7); x[n]=env*s; }
+    let m=0; for(let n=0;n<N;n++) m=Math.max(m,Math.abs(x[n])); if(m>0) for(let n=0;n<N;n++) x[n]/=m*1.05; return fade(x,120);
+  }
+  function draw(t){
+    const clip=synth(decode(t)); const spec=spectrogram(clip,256,128,40);
+    ctx.fillStyle='#12141c'; ctx.fillRect(0,0,W,H);
+    const padX=14, top=28, plotW=W-2*padX, plotH=H-58;
+    const cw=plotW/spec.length, ch=plotH/spec[0].length;
+    for(let f=0;f<spec.length;f++) for(let b=0;b<spec[0].length;b++){ ctx.fillStyle=specColor(spec[f][b]); ctx.fillRect(padX+f*cw, top+(spec[0].length-1-b)*ch, cw+1, ch+1); }
+    ctx.fillStyle='#8a8d9a'; ctx.font="11px 'Lucida Console',monospace"; ctx.textAlign='left';
+    ctx.fillText('DECODED SPECTROGRAM @ t = '+t.toFixed(2), padX, 16);
+    // interpolation bar
+    const by=H-18, bx0=padX, bx1=W-padX;
+    ctx.strokeStyle='rgba(160,164,180,0.35)'; ctx.beginPath(); ctx.moveTo(bx0,by); ctx.lineTo(bx1,by); ctx.stroke();
+    ctx.fillStyle='#8a8d9a'; ctx.fillText('A', bx0-2, by-6); ctx.textAlign='right'; ctx.fillText('B', bx1+2, by-6); ctx.textAlign='left';
+    const px=bx0+t*(bx1-bx0); ctx.fillStyle='#c07af0'; ctx.beginPath(); ctx.arc(px,by,5,0,7); ctx.fill();
+  }
+  let raf=null, wt=0, dir=1;
+  function stopWalk(){ cancelAnimationFrame(raf); raf=null; }
+  function autowalk(){
+    stopWalk();
+    function step(){ wt+=0.012*dir; if(wt>=1){ wt=1; dir=-1; } else if(wt<=0){ wt=0; dir=1; }
+      tEl.value=wt.toFixed(2); tV.textContent=wt.toFixed(2); draw(wt);
+      cap.textContent='auto-walking the latent  ·  t = '+wt.toFixed(2); raf=requestAnimationFrame(step); }
+    step();
+  }
+  tEl.addEventListener('input',()=>{ stopWalk(); wt=+tEl.value; tV.textContent=wt.toFixed(2); draw(wt);
+    cap.textContent = 't = '+wt.toFixed(2)+(wt<0.02?' — endpoint A':(wt>0.98?' — endpoint B':' — interpolated latent')); });
+  walkBtn.addEventListener('click',autowalk);
+  playA.addEventListener('click',()=>{ play(synth(decode(0)),SRl); });
+  playB.addEventListener('click',()=>{ play(synth(decode(1)),SRl); });
+  playCur.addEventListener('click',()=>{ play(synth(decode(+tEl.value)),SRl); });
+  window.addEventListener('resize',()=>{ W=fitWidth(c); ctx=setupCanvas(c,W,H); draw(+tEl.value); });
+  draw(0);
+})();
+
+// ── hero animation: waveform morphing into spectrogram bars ───
+(function hero(){
+  const c=document.getElementById('heroCanvas'); if(!c) return;
+  const W=()=>Math.max(320,document.documentElement.clientWidth);
+  const H=()=>Math.max(400,Math.min(window.innerHeight,900));
+  let ctx=setupCanvas(c,W(),H());
+  const N=200; let ph=0; let last=performance.now();
+  function frame(now){
+    const w=W(),h=H(); if(c.width!==Math.round(w*DPR)||c.height!==Math.round(h*DPR)) ctx=setupCanvas(c,w,h);
+    const dt=Math.min(0.05,(now-last)/1000); last=now; ph+=dt*0.6;
+    ctx.fillStyle='rgba(10,11,15,0.22)'; ctx.fillRect(0,0,w,h);
+    const morph=0.5+0.5*Math.sin(ph*0.5); // 0 = waveform, 1 = bars
+    ctx.strokeStyle='rgba(74,199,232,0.75)'; ctx.lineWidth=1.6;
+    for(let i=0;i<N;i++){
+      const x=i/(N-1)*w;
+      const tt=i*0.12+ph*3;
+      const wav=Math.sin(tt)+0.5*Math.sin(tt*2.01)+0.3*Math.sin(tt*3.03);
+      const env=0.4+0.6*Math.abs(Math.sin(i*0.05+ph));
+      const barTop=h*0.5 - env*h*0.30*(0.5+0.5*Math.sin(i*0.7+ph*2));
+      const wy=h*0.5 - wav*h*0.09;
+      if(morph<0.5){ // waveform line
+        if(i===0){ctx.beginPath(); ctx.moveTo(x,wy);} else ctx.lineTo(x,wy);
+      }
+    }
+    if(morph<0.5) ctx.stroke();
+    if(morph>=0.5){ // spectrogram-ish bars
+      for(let i=0;i<N;i++){ const x=i/(N-1)*w; const env=Math.abs(Math.sin(i*0.09+ph*1.3))*Math.abs(Math.sin(i*0.3+ph)); const hh=env*h*0.34*(morph); ctx.fillStyle=`rgba(${60+env*120|0},${120+env*100|0},${200},${0.15+env*0.5})`; ctx.fillRect(x-1, h*0.5-hh, 3, hh*2); }
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  window.addEventListener('resize',()=>{ ctx=setupCanvas(c,W(),H()); });
+})();
+
+// ── scroll-spy ────────────────────────────────────────────────
+(function toc(){
+  const links=document.querySelectorAll('nav#toc a');
+  const secs=Array.from(links).map(a=>document.querySelector(a.getAttribute('href'))).filter(Boolean);
+  function onScroll(){ const y=window.scrollY+120; let k=0; for(let i=0;i<secs.length;i++){ if(secs[i].offsetTop<=y) k=i; } links.forEach(a=>a.classList.remove('active')); if(links[k]) links[k].classList.add('active'); }
+  window.addEventListener('scroll',onScroll,{passive:true}); onScroll();
+})();
+})();
+</script>
+</body>
+</html>
